@@ -1,0 +1,34 @@
+# use glob syntax.
+syntax: glob
+
+# misc files
+*.log
+.DS_Store
+
+# building
+out
+ij-out
+ant-out
+
+# sbt
+target
+lib_managed
+src_managed
+project/boot/
+project/project
+dist/
+test-results
+imageengine/
+
+# IntelliJ
+*.iws
+*.iml
+.idea
+atlassian-ide-plugin.xml
+
+
+# vim
+*.swp
+dump.rdb
+RUNNING_PID
+stdout
