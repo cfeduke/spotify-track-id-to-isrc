@@ -22,3 +22,8 @@ res1: Option[String] = None
 
 The `Spotify` object creates an actor system so its not lightweight. If you were to, say, use this in
 a Spark job you'd want to combine it with `mapPartitions` and only create one of them per executor.
+
+There is also an `AuthenticatedSpotify` which will one time initialize itself with an authentication
+token using your Spotify client ID/client secret for improved rate limiting. It performs no logic for
+handling token expiration but with some refactoring it should be do-able using the Akka scheduler or
+even standard `try/catch` handling.
