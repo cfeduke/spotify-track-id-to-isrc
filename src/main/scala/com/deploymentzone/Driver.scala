@@ -16,14 +16,14 @@ object Driver extends App with LazyLogging {
 
   private val lines: Iterator[String] = Source.fromFile(inputFile).getLines()
 
-  var input: Iterator[String] = Iterator.empty[String]
+  var input: Iterator[String] = Seq.empty[String].iterator
   if (outputFile.exists) {
-    val lastTrackId = Source.fromFile(outputFile).getLines().foldLeft("") { case (_, str) => str }
-    logger.info(s"Skipping to track $lastTrackId")
-    if (lastTrackId.length > 0) {
-      val (skipped, rest) = Source.fromFile(inputFile).getLines().span(trackId => trackId == lastTrackId)
-      logger.info(s"Skipping ${skipped.length} records")
-      input = rest
+    val lastLine = Source.fromFile(outputFile).getLines().foldLeft("") { case (_, str) => str }
+    if (lastLine.length > 0) {
+      val lastTrackId = lastLine.split(",").head
+      logger.info(s"Skipping to track $lastTrackId")
+      input = Source.fromFile(inputFile).getLines().dropWhile(trackId => trackId != lastTrackId)
+      if (input.hasNext) input.next()
     }
   }
   if (input.isEmpty) {

@@ -12,7 +12,7 @@ object SpotifyProtocol extends DefaultJsonProtocol with SnakifiedSprayJsonSuppor
 
 }
 
-case class ExternalIds(isrc: String)
+case class ExternalIds(isrc: Option[String])
 
 case class Track(externalIds: ExternalIds)
 

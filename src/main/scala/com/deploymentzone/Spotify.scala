@@ -32,6 +32,12 @@ class StandardPipeline extends Service {
       ~> unmarshal[A])
     pipeline(request)
   }
+
+  def requestResponse(request: HttpRequest): Future[HttpResponse] = {
+    val pipeline = (sendReceive
+      ~> decode(Deflate))
+    pipeline(request)
+  }
 }
 
 trait AuthenticatedPipeline extends Service {
@@ -66,6 +72,13 @@ trait AuthenticatedPipeline extends Service {
       ~> unmarshal[A])
     pipeline(request)
   }
+
+  def requestResponse(request: HttpRequest): Future[HttpResponse] = {
+    val pipeline = (addHeader("Authorization", s"Bearer $accessToken")
+      ~> sendReceive
+      ~> decode(Deflate))
+    pipeline(request)
+  }
 }
 
 trait Service {
@@ -73,17 +86,20 @@ trait Service {
   implicit val system = ActorSystem()
 
   def request[A: FromResponseUnmarshaller](request: HttpRequest): Future[A]
+
+  def requestResponse(request: HttpRequest): Future[HttpResponse]
 }
 
-trait RetrieveISRCForTrack extends Service {
+trait RetrieveISRCForTrack extends Service with LazyLogging {
+
   import system.dispatcher
 
   def apply(trackId: String): Option[String] = {
     val future = (for {
       track <- request[Track](Get(s"https://api.spotify.com/v1/tracks/$trackId"))
-    } yield Option(track.externalIds.isrc)).recoverWith {
+    } yield track.externalIds.isrc).recoverWith {
       case ex =>
-        println(ex)
+        logger.error("Exception", ex)
         Future.successful(None)
     }
     Await.result(future, 20.seconds)
@@ -91,18 +107,52 @@ trait RetrieveISRCForTrack extends Service {
 }
 
 trait RetrieveISRCForTracks extends Service with LazyLogging {
+
   import system.dispatcher
+
+  private val empty = Seq.empty[(String, String)]
 
   def apply(trackIds: Seq[String]): Seq[(String, String)] = {
     assert(trackIds.length <= 50, "Spotify API accepts no more than 50 track IDs at a time")
 
-    val future = (for {
-      tracks <- request[Tracks](Get(s"https://api.spotify.com/v1/tracks/?ids=${trackIds.mkString(",")}"))
-    } yield tracks.tracks.zip(trackIds).map { case (t, trackId) => (trackId, t.map(_.externalIds.isrc).getOrElse("")) })
-      .recoverWith {
-      case ex =>
-        Future.successful(trackIds.map { trackId => (trackId, "") })
-    }
-    Await.result(future, 20.seconds)
+    var results = empty
+
+    do {
+      val future = requestResponse(Get(s"https://api.spotify.com/v1/tracks/?ids=${trackIds.mkString(",")}"))
+        .map { response => response.status.intValue match {
+        case 429 =>
+          val wait = response.headers.find(_.lowercaseName == "retry-after").map(_.value.toInt + 1).getOrElse(60)
+          logger.error(s"Rate limited; retrying after $wait seconds")
+          Thread.sleep(wait.seconds.toMillis)
+          empty
+        case 200 =>
+          import spray.httpx.unmarshalling._
+
+          response.entity.as[Tracks] match {
+            case Right(tracks) =>
+              tracks.tracks.zip(trackIds).map { case (t, trackId) =>
+                (trackId, t.map(_.externalIds.isrc.getOrElse("")).getOrElse(""))
+              }
+            case Left(de) =>
+              logger.error("Deserialization error; exiting", de)
+              println(de)
+              System.exit(1)
+              empty
+          }
+        case code =>
+          val wait = 10.seconds
+          logger.error(s"Encountered an unexpected HTTP status code $code, waiting ${wait.toSeconds} seconds and retrying")
+          Thread.sleep(wait.toMillis)
+          empty
+      }
+      }.recoverWith {
+        case ex =>
+          logger.error("Exception: ", ex)
+          Future.successful(empty)
+      }
+      results = Await.result(future, 20.seconds)
+    } while (results.isEmpty)
+
+    results
   }
 }
