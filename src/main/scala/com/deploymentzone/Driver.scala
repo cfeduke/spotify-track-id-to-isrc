@@ -1,29 +1,43 @@
 package com.deploymentzone
 
-import scala.concurrent.duration.Duration
+import java.io._
+
+import com.typesafe.scalalogging.slf4j.LazyLogging
+
 import scala.io.Source
 import scala.concurrent.duration._
+import scala.util.control.Exception.ultimately
 
-object Driver extends App {
+object Driver extends App with LazyLogging {
 
   val (clientId, clientSecret) = (args(1), args(2))
+  val inputFile = new File(args(3))
+  val outputFile = new File(args.lastOption.getOrElse("output.txt"))
 
-  def exponentialBackOff(r: Int): Duration = scala.math.pow(2, scala.math.min(r,8)).round * 5.seconds
+  private val lines: Iterator[String] = Source.fromFile(inputFile).getLines()
 
-  Source.fromFile(args(3)).getLines().grouped(50).foreach { trackIds =>
-    var execute = true
-    var attempt = 1
-    while(execute) {
-      execute = false
-      val results = AuthenticatedSpotifyTracksISRC(clientId, clientSecret)(trackIds)
-      if (results.forall { case (_, isrc) => isrc.length == 0 }) {
-        Thread.sleep(exponentialBackOff(attempt).toMillis)
-        execute = true
-        attempt += 1
-      } else {
-        results.foreach { case (trackId, isrc) => println(s"$trackId,$isrc") }
-        Thread.sleep(1000)
+  var input: Iterator[String] = Iterator.empty[String]
+  if (outputFile.exists) {
+    val lastTrackId = Source.fromFile(outputFile).getLines().foldLeft("") { case (_, str) => str }
+    logger.info(s"Skipping to track $lastTrackId")
+    if (lastTrackId.length > 0) {
+      val (skipped, rest) = Source.fromFile(inputFile).getLines().span(trackId => trackId == lastTrackId)
+      logger.info(s"Skipping ${skipped.length} records")
+      input = rest
+    }
+  }
+  if (input.isEmpty) {
+    input = Source.fromFile(inputFile).getLines()
+  }
+
+  val writer = new FileWriter(outputFile, outputFile.exists())
+  ultimately(writer.close()) {
+    input.grouped(50).foreach { trackIds =>
+      logger.info(s"Processing ${trackIds.length} records")
+      AuthenticatedSpotifyTracksISRC(clientId, clientSecret)(trackIds).foreach { case (trackId, isrc) =>
+        writer.write(s"$trackId,$isrc\n")
       }
+      Thread.sleep(2.seconds.toMillis)
     }
   }
 

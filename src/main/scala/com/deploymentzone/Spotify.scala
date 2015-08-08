@@ -1,6 +1,7 @@
 package com.deploymentzone
 
 import akka.actor.ActorSystem
+import com.typesafe.scalalogging.slf4j.LazyLogging
 import org.parboiled.common.Base64
 import spray.client.pipelining._
 import spray.http._
@@ -89,7 +90,7 @@ trait RetrieveISRCForTrack extends Service {
   }
 }
 
-trait RetrieveISRCForTracks extends Service {
+trait RetrieveISRCForTracks extends Service with LazyLogging {
   import system.dispatcher
 
   def apply(trackIds: Seq[String]): Seq[(String, String)] = {
