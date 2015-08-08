@@ -4,38 +4,51 @@ import akka.actor.ActorSystem
 import org.parboiled.common.Base64
 import spray.client.pipelining._
 import spray.http._
-import spray.httpx.SprayJsonSupport._
 import spray.httpx.encoding.Deflate
+import spray.httpx.unmarshalling.FromResponseUnmarshaller
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
+import spray.httpx.SprayJsonSupport._
+import SpotifyProtocol._
 
 
-object Spotify extends Service {
+case class AuthenticatedSpotifyTrackISRC(clientId: String, clientSecret: String)
+  extends AuthenticatedPipeline
+  with RetrieveISRCForTrack
 
-  import SpotifyProtocol._
+case class AuthenticatedSpotifyTracksISRC(clientId: String, clientSecret: String)
+  extends AuthenticatedPipeline
+  with RetrieveISRCForTracks
+
+class StandardPipeline extends Service {
 
   import system.dispatcher
 
-  val pipeline: HttpRequest => Future[Track] = (
-    sendReceive
+  def request[A: FromResponseUnmarshaller](request: HttpRequest): Future[A] = {
+    val pipeline = (sendReceive
       ~> decode(Deflate)
-      ~> unmarshal[Track])
-
+      ~> unmarshal[A])
+    pipeline(request)
+  }
 }
 
-case class AuthenticatedSpotify(clientId: String, clientSecret: String) extends Service {
-  import SpotifyProtocol._
+trait AuthenticatedPipeline extends Service {
+  def clientId: String
 
+  def clientSecret: String
+
+  import SpotifyProtocol._
+  import spray.httpx.SprayJsonSupport._
   import system.dispatcher
 
   private val base64ClientIdSecret = Base64.rfc2045().encodeToString(s"$clientId:$clientSecret".getBytes, false)
 
-  private val authenticationPipeline: HttpRequest => Future[AccessToken] = (
+  protected val authenticationPipeline: HttpRequest => Future[AccessToken] = (
     addHeader("Authorization", s"Basic $base64ClientIdSecret")
-    ~> sendReceive
-    ~> decode(Deflate)
-    ~> unmarshal[AccessToken]
+      ~> sendReceive
+      ~> decode(Deflate)
+      ~> unmarshal[AccessToken]
     )
 
   private val applicationXWwwFormUrlEncoded: ContentType = ContentType(MediaType.custom("application/x-www-form-urlencoded"))
@@ -45,28 +58,50 @@ case class AuthenticatedSpotify(clientId: String, clientSecret: String) extends 
       .withEntity(HttpEntity(applicationXWwwFormUrlEncoded, "grant_type=client_credentials"))), 20.seconds)
       .accessToken
 
-  lazy val pipeline: HttpRequest => Future[Track] = (
-    addHeader("Authorization", s"Bearer $accessToken")
-    ~> sendReceive
-    ~> decode(Deflate)
-    ~> unmarshal[Track]
-    )
+  def request[A: FromResponseUnmarshaller](request: HttpRequest): Future[A] = {
+    val pipeline = (addHeader("Authorization", s"Bearer $accessToken")
+      ~> sendReceive
+      ~> decode(Deflate)
+      ~> unmarshal[A])
+    pipeline(request)
+  }
 }
 
 trait Service {
 
   implicit val system = ActorSystem()
+
+  def request[A: FromResponseUnmarshaller](request: HttpRequest): Future[A]
+}
+
+trait RetrieveISRCForTrack extends Service {
   import system.dispatcher
 
-  def pipeline: HttpRequest => Future[Track]
-
-  def mapTrackIdToISRC(trackId: String): Option[String] = {
+  def apply(trackId: String): Option[String] = {
     val future = (for {
-      track <- pipeline(Get(s"https://api.spotify.com/v1/tracks/$trackId"))
+      track <- request[Track](Get(s"https://api.spotify.com/v1/tracks/$trackId"))
     } yield Option(track.externalIds.isrc)).recoverWith {
       case ex =>
         println(ex)
         Future.successful(None)
+    }
+    Await.result(future, 20.seconds)
+  }
+}
+
+trait RetrieveISRCForTracks extends Service {
+  import system.dispatcher
+
+  def apply(trackIds: Seq[String]): Seq[(String, String)] = {
+    assert(trackIds.length <= 50, "Spotify API accepts no more than 50 track IDs at a time")
+
+    val future = (for {
+      tracks <- request[Tracks](Get(s"https://api.spotify.com/v1/tracks/ids=${trackIds.mkString(",")}"))
+    } yield tracks.tracks.zip(trackIds).map { case (t, trackId) => (trackId, t.map(_.externalIds.isrc).getOrElse("")) })
+      .recoverWith {
+      case ex =>
+        println(ex)
+        Future.successful(trackIds.map { trackId => (trackId, "") })
     }
     Await.result(future, 20.seconds)
   }

@@ -7,13 +7,16 @@ object SpotifyProtocol extends DefaultJsonProtocol with SnakifiedSprayJsonSuppor
 
   implicit val externalIdsProtocol = jsonFormat1(ExternalIds)
   implicit val trackProtocol = jsonFormat1(Track)
-  implicit val accessTokenProtocl = jsonFormat3(AccessToken)
+  implicit val tracksProtocol = jsonFormat1(Tracks)
+  implicit val accessTokenProtocol = jsonFormat3(AccessToken)
 
 }
 
 case class ExternalIds(isrc: String)
 
 case class Track(externalIds: ExternalIds)
+
+case class Tracks(tracks: Seq[Option[Track]])
 
 case class AccessToken(accessToken: String, tokenType: String, expiresIn: Int)
 
