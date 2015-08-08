@@ -96,7 +96,7 @@ trait RetrieveISRCForTracks extends Service {
     assert(trackIds.length <= 50, "Spotify API accepts no more than 50 track IDs at a time")
 
     val future = (for {
-      tracks <- request[Tracks](Get(s"https://api.spotify.com/v1/tracks/ids=${trackIds.mkString(",")}"))
+      tracks <- request[Tracks](Get(s"https://api.spotify.com/v1/tracks/?ids=${trackIds.mkString(",")}"))
     } yield tracks.tracks.zip(trackIds).map { case (t, trackId) => (trackId, t.map(_.externalIds.isrc).getOrElse("")) })
       .recoverWith {
       case ex =>

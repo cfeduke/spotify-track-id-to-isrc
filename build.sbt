@@ -14,3 +14,5 @@ libraryDependencies ++= Seq(
 
 initialCommands := "import com.deploymentzone._"
 
+assemblyJarName in assembly := "deploymentzone-spotify.jar"
+

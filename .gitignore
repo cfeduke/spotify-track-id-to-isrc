@@ -32,3 +32,4 @@ atlassian-ide-plugin.xml
 dump.rdb
 RUNNING_PID
 stdout
+bin/
