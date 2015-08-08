@@ -100,7 +100,6 @@ trait RetrieveISRCForTracks extends Service {
     } yield tracks.tracks.zip(trackIds).map { case (t, trackId) => (trackId, t.map(_.externalIds.isrc).getOrElse("")) })
       .recoverWith {
       case ex =>
-        println(ex)
         Future.successful(trackIds.map { trackId => (trackId, "") })
     }
     Await.result(future, 20.seconds)
